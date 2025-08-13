@@ -26,12 +26,16 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CUDA_HOME
 
 HAS_SM80 = False
 HAS_SM86 = False
+HAS_SM87 = False
 HAS_SM89 = False
 HAS_SM90 = False
+HAS_SM100 = False
+HAS_SM101 = False
+HAS_SM110 = False
 HAS_SM120 = False
 
 # Supported NVIDIA GPU architectures.
-SUPPORTED_ARCHS = {"8.0", "8.6", "8.9", "9.0", "12.0"}
+SUPPORTED_ARCHS = {"8.0", "8.6", "8.7", "8.9", "9.0", "10.0", "10.1", "11.0", "12.0"}
 
 # Compiler flags.
 CXX_FLAGS = ["-g", "-O3", "-fopenmp", "-lgomp", "-std=c++17", "-DENABLE_BF16"]
@@ -67,13 +71,23 @@ def get_nvcc_cuda_version(cuda_dir: str) -> Version:
     return nvcc_cuda_version
 
 # Check for environment variable to specify architectures for GPU-less builds
+# or when we want to build for specific architectures
 compute_capabilities = set()
 
 if os.environ.get('TORCH_CUDA_ARCH_LIST'):
     # Parse architectures from environment variable
     arch_list = os.environ['TORCH_CUDA_ARCH_LIST'].replace(' ', '').split(';')
     for arch in arch_list:
-        compute_capabilities.add(arch)
+        # Convert format from 8.0 to 80 if needed, or just use as-is
+        arch = arch.replace('+PTX', '')
+        if '.' in arch:
+            compute_capabilities.add(arch)
+        else:
+            # Convert from format like "80" to "8.0"
+            if len(arch) == 2:
+                compute_capabilities.add(f"{arch[0]}.{arch[1]}")
+            elif len(arch) == 3:  # Like "120" -> "12.0"
+                compute_capabilities.add(f"{arch[:2]}.{arch[2]}")
     print(f"Using TORCH_CUDA_ARCH_LIST: {compute_capabilities}")
 else:
     # Iterate over all GPUs on the current machine
@@ -112,15 +126,30 @@ for capability in compute_capabilities:
     elif capability.startswith("8.6"):
         HAS_SM86 = True
         num = "86"
+    elif capability.startswith("8.7"):
+        HAS_SM87 = True
+        num = "87"
     elif capability.startswith("8.9"):
         HAS_SM89 = True
         num = "89"
     elif capability.startswith("9.0"):
         HAS_SM90 = True
         num = "90a" # need to use sm90a instead of sm90 to use wgmma ptx instruction.
+    elif capability.startswith("10.0"):
+        HAS_SM100 = True
+        num = "100"
+    elif capability.startswith("10.1"):
+        HAS_SM101 = True
+        num = "101"
+    elif capability.startswith("11.0"):
+        HAS_SM110 = True
+        num = "110"
     elif capability.startswith("12.0"):
         HAS_SM120 = True
         num = "120" # need to use sm120a to use mxfp8/mxfp4/nvfp4 instructions.
+    else:
+        warnings.warn(f"Unknown compute capability {capability}, skipping")
+        continue
     NVCC_FLAGS += ["-gencode", f"arch=compute_{num},code=sm_{num}"]
     if capability.endswith("+PTX"):
         NVCC_FLAGS += ["-gencode", f"arch=compute_{num},code=compute_{num}"]
@@ -146,14 +175,7 @@ if HAS_SM89 or HAS_SM120:
         name="sageattention._qattn_sm89",
         sources=[
             "csrc/qattn/pybind_sm89.cpp",
-            "csrc/qattn/sm89_qk_int8_sv_f8_accum_f32_attn_inst_buf.cu",
-            "csrc/qattn/sm89_qk_int8_sv_f8_accum_f16_attn_inst_buf.cu",
-            "csrc/qattn/sm89_qk_int8_sv_f8_accum_f32_attn.cu",
-            "csrc/qattn/sm89_qk_int8_sv_f8_accum_f32_fuse_v_scale_fuse_v_mean_attn.cu",
-            "csrc/qattn/sm89_qk_int8_sv_f8_accum_f32_fuse_v_scale_attn.cu",
-            "csrc/qattn/sm89_qk_int8_sv_f8_accum_f32_fuse_v_scale_attn_inst_buf.cu",
-            "csrc/qattn/sm89_qk_int8_sv_f8_accum_f16_fuse_v_scale_attn_inst_buf.cu"
-            #"csrc/qattn/qk_int_sv_f8_cuda_sm89.cu",
+            "csrc/qattn/qk_int_sv_f8_cuda_sm89.cu",
         ],
         extra_compile_args={
             "cxx": CXX_FLAGS,
