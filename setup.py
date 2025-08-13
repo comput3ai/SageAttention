@@ -185,6 +185,23 @@ if HAS_SM89 or HAS_SM120:
     ext_modules.append(qattn_extension)
 
 if HAS_SM90:
+    # SM90 kernel must only be compiled for SM90 architecture
+    # Filter out architecture flags from NVCC_FLAGS and add only SM90
+    SM90_NVCC_FLAGS = []
+    skip_next = False
+    for i, flag in enumerate(NVCC_FLAGS):
+        if skip_next:
+            skip_next = False
+            continue
+        if flag == "-gencode":
+            # Skip this flag and the next one (the architecture specification)
+            skip_next = True
+            continue
+        SM90_NVCC_FLAGS.append(flag)
+
+    # Add only SM90 architecture
+    SM90_NVCC_FLAGS += ["-gencode", "arch=compute_90a,code=sm_90a"]
+
     qattn_extension = CUDAExtension(
         name="sageattention._qattn_sm90",
         sources=[
@@ -193,7 +210,7 @@ if HAS_SM90:
         ],
         extra_compile_args={
             "cxx": CXX_FLAGS,
-            "nvcc": NVCC_FLAGS,
+            "nvcc": SM90_NVCC_FLAGS,
         },
         extra_link_args=['-lcuda'],
     )
